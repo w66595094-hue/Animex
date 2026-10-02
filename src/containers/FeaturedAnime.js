@@ -1,13 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { Link } from 'react-router-dom';
+
 import getFeaturedAnime from '../API/getFeaturedAnime';
 import Loading from '../components/Loading';
 import addFeaturedAnime from '../store/actions/addFeaturedAnime';
 
 const mapDispatchToProps = dispatch => ({
-  featuredAnimeAdder: featuredAnime => dispatch(addFeaturedAnime(featuredAnime)),
+  featuredAnimeAdder: anime => dispatch(addFeaturedAnime(anime)),
 });
 
 const mapStateToProps = state => ({
@@ -15,102 +16,206 @@ const mapStateToProps = state => ({
 });
 
 const FeaturedAnime = ({
-  featuredAnimeAdder, featuredAnime,
+  featuredAnimeAdder,
+  featuredAnime,
 }) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
   useEffect(() => {
-    setTimeout(() => { // to get around 2 requests/second rate-limit of Jikan API
+    let active = true;
+
+    const timer = setTimeout(() => {
       getFeaturedAnime()
-        .then(
-          featuredAnime => {
-            featuredAnimeAdder(featuredAnime[Math.floor(Math.random() * 25)]);
-          },
-        );
+        .then(response => {
+          const animeList = Array.isArray(response)
+            ? response
+            : Array.isArray(response && response.data)
+              ? response.data
+              : Array.isArray(response && response.data && response.data.data)
+                ? response.data.data
+                : [];
+
+          const validAnime = animeList.filter(
+            anime => anime && anime.mal_id
+          );
+
+          if (!validAnime.length) {
+            throw new Error('No anime found');
+          }
+
+          const randomIndex = Math.floor(
+            Math.random() * validAnime.length
+          );
+
+          if (active) {
+            featuredAnimeAdder(validAnime[randomIndex]);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setError('Unable to load featured anime. Please try again.');
+            setLoading(false);
+          }
+        });
     }, 500);
-  }, []); // adding dependency results in infinite number of network requests
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [featuredAnimeAdder]);
+
+  if (loading) {
+    return <Loading />;
+  }
+
+  if (error) {
+    return (
+      <section className="featured-anime">
+        <div className="anime-info">
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (!featuredAnime || !featuredAnime.mal_id) {
+    return <Loading />;
+  }
+
+  const imageUrl =
+    featuredAnime.images &&
+    featuredAnime.images.webp &&
+    featuredAnime.images.webp.large_image_url
+      ? featuredAnime.images.webp.large_image_url
+      : '';
+
+  const title = featuredAnime.title || 'Unknown Anime';
+
+  const synopsis = featuredAnime.synopsis
+    ? featuredAnime.synopsis.slice(0, 300)
+    : 'Synopsis not available.';
 
   return (
-    <>
-      {
-        featuredAnime.mal_id === undefined ? <Loading /> : (
-          <section className="featured-anime">
+    <section className="featured-anime">
 
-            <div className="blurred-background" style={{ backgroundImage: `linear-gradient(180deg, rgba(27,27,27,0.5998774509803921) 20%, rgba(27,27,27,1) 85%), url(${featuredAnime.images.webp.large_image_url}` }} />
+      <div
+        className="blurred-background"
+        style={{
+          backgroundImage: imageUrl
+            ? `linear-gradient(180deg, rgba(27,27,27,0.6) 20%, rgba(27,27,27,1) 85%), url("${imageUrl}")`
+            : 'none',
+        }}
+      />
 
-            <div className="left">
+      <div className="left">
 
-              <header>
-                <span className="active">overview</span>
-                <span><Link to={`/anime/${featuredAnime.mal_id}`}>details</Link></span>
-              </header>
+        <header>
+          <span className="active">overview</span>
 
-              <h1>{featuredAnime.title}</h1>
+          <span>
+            <Link to={`/anime/${featuredAnime.mal_id}`}>
+              details
+            </Link>
+          </span>
+        </header>
 
-              <div className="stats">
-                {
-                  featuredAnime.score === null
-                    ? ''
-                    : (
-                      <div className="anime__score">
-                        <i className="fas fa-star-half-alt" />
-                        <span>{featuredAnime.score}</span>
-                      </div>
-                    )
-                  }
+        <h1>{title}</h1>
 
-                {featuredAnime.year && <span>{parseInt(featuredAnime.year, 10)}</span>}
-                <span>{featuredAnime.type}</span>
-              </div>
-              <p>
-                {featuredAnime.synopsis.slice(0, 300)}
-                ...
-              </p>
+        <div className="stats">
 
-              <div className="cta-btn">
-                <a href="/">
-                  <i className="fas fa-bookmark" />
-                  &nbsp;
-                  Add to...
-                </a>
-                <a href="/">
-                  <i className="fas fa-thumbs-up" />
-                  &nbsp;
-                  Like
-                </a>
-              </div>
+          {featuredAnime.score !== null &&
+           featuredAnime.score !== undefined && (
+            <div className="anime__score">
+              <i className="fas fa-star-half-alt" />
+              <span>{featuredAnime.score}</span>
             </div>
+          )}
 
-            <div className="right">
-              <img src={featuredAnime.images.webp.large_image_url} alt={featuredAnime.title} />
-            </div>
-          </section>
-        )
-      }
-    </>
+          {featuredAnime.year && (
+            <span>{featuredAnime.year}</span>
+          )}
+
+          <span>{featuredAnime.type || 'Anime'}</span>
+
+        </div>
+
+        <p>
+          {synopsis}
+          {featuredAnime.synopsis &&
+           featuredAnime.synopsis.length > 300
+            ? '...'
+            : ''}
+        </p>
+
+        <div className="cta-btn">
+
+          <Link to={`/anime/${featuredAnime.mal_id}`}>
+            <i className="fas fa-info-circle" />
+            &nbsp;
+            View Details
+          </Link>
+
+          {featuredAnime.url && (
+            <a
+              href={featuredAnime.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <i className="fas fa-external-link-alt" />
+              &nbsp;
+              More Info
+            </a>
+          )}
+
+        </div>
+
+      </div>
+
+      <div className="right">
+
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={title}
+            loading="lazy"
+          />
+        ) : (
+          <div className="anime-image-placeholder">
+            Image not available
+          </div>
+        )}
+
+      </div>
+
+    </section>
   );
 };
 
 FeaturedAnime.propTypes = {
   featuredAnimeAdder: PropTypes.func.isRequired,
+
   featuredAnime: PropTypes.shape({
     mal_id: PropTypes.number,
-    images: PropTypes.shape({
-      webp: PropTypes.shape({
-        image_url: PropTypes.string,
-        large_image_url: PropTypes.string,
-        small_image_url: PropTypes.string,
-      }),
-    }),
-    image_url: PropTypes.string,
+    images: PropTypes.object,
     title: PropTypes.string,
     score: PropTypes.number,
     year: PropTypes.number,
-    start_date: PropTypes.string,
     type: PropTypes.string,
     synopsis: PropTypes.string,
-  }).isRequired,
+    url: PropTypes.string,
+  }),
 };
 
 export default connect(
   mapStateToProps,
-  mapDispatchToProps,
+  mapDispatchToProps
 )(FeaturedAnime);
