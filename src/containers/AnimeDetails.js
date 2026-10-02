@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { Link, useHistory } from 'react-router-dom';
+
 import getAnimeDetails from '../API/getAnimeDetails';
 import addAnimeDetails from '../store/actions/addAnimeDetails';
 import Loading from '../components/Loading';
@@ -14,158 +15,218 @@ const mapStateToProps = state => ({
   animeDetails: state.animeDetails,
 });
 
-const AnimeDetails = ({ animeDetailsAdder, animeDetails, match }) => {
+const AnimeDetails = ({
+  animeDetailsAdder,
+  animeDetails,
+  match,
+}) => {
   const { animeId } = match.params;
 
-  useEffect(() => {
-    setTimeout(() => { // to get around 2 requests/second rate-limit of Jikan API
-      getAnimeDetails(animeId)
-        .then(
-          anime => {
-            animeDetailsAdder(anime);
-          },
-        );
-    }, 500);
-  }, [animeDetails.mal_id]);
-
   const history = useHistory();
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+
+    setLoading(true);
+    setError('');
+
+    const timer = setTimeout(() => {
+      getAnimeDetails(animeId)
+        .then(anime => {
+          if (!anime) {
+            throw new Error('Anime details not found');
+          }
+
+          if (active) {
+            animeDetailsAdder(anime);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setError('Unable to load anime details. Please try again.');
+            setLoading(false);
+          }
+        });
+    }, 500);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [animeId, animeDetailsAdder]);
 
   const routeChange = () => {
     history.goBack();
   };
 
+  if (loading) {
+    return <Loading />;
+  }
+
+  if (error) {
+    return (
+      <main className="anime-error">
+        <p>{error}</p>
+        <button type="button" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+        <button type="button" onClick={routeChange}>
+          Go Back
+        </button>
+      </main>
+    );
+  }
+
+  const details = animeDetails || {};
+
+  if (
+    !details.mal_id ||
+    details.mal_id !== parseInt(animeId, 10)
+  ) {
+    return <Loading />;
+  }
+
+  const imageUrl =
+    details.images &&
+    details.images.webp &&
+    details.images.webp.large_image_url
+      ? details.images.webp.large_image_url
+      : '';
+
+  const genres = details.genres || [];
+
   return (
-    <>
-      {
-        animeDetails.mal_id !== parseInt(animeId, 10) ? <Loading /> : (
-          <main>
+    <main>
+      <div
+        className="blurred-background"
+        style={{
+          backgroundImage: imageUrl
+            ? `linear-gradient(180deg, rgba(27,27,27,0.38) 0%, rgba(27,27,27,0.96) 65%), url("${imageUrl}")`
+            : 'none',
+          position: 'fixed',
+        }}
+      />
 
-            <div className="blurred-background" style={{ backgroundImage: `linear-gradient(180deg, rgba(27,27,27,0.3785889355742297) 0%, rgba(27,27,27,0.9640231092436975) 65%), url(${animeDetails.images.webp.large_image_url}`, position: 'fixed' }} />
+      <button
+        type="button"
+        className="go-back"
+        onClick={routeChange}
+      >
+        <i className="fas fa-angle-left" />
+        {' '}
+        Back
+      </button>
 
-            <button
-              type="button"
-              className="go-back"
-              onClick={() => routeChange()}
-            >
-              <i className="fas fa-angle-left" />
-              {' '}
-              Back
-            </button>
+      <div className="anime-details">
 
-            <div className="anime-details">
-              <div className="anime__img">
-                <img src={animeDetails.images.webp.large_image_url} alt={animeDetails.title} />
+        <div className="anime__img">
 
-                <div className="anime__watch-links">
-                  <a href={animeDetails.url} target="_blank" rel="noopener noreferrer" className="watch">
-                    <i className="fas fa-play-circle" />
-                    <span>&nbsp; Watch Now</span>
-                  </a>
-                  {
-                    animeDetails.trailer_url === null
-                      ? (
-                        <p>
-                          <i className="fas fa-exclamation-circle" />
-                          &nbsp;
-                          Trailer not avaliable
-                        </p>
-                      )
-                      : (
-                        <a href={animeDetails.trailer_url} target="_blank" rel="noopener noreferrer" className="trailer">
-                          <i className="fas fa-play-circle" />
-                          <span>&nbsp; View Trailer</span>
-                        </a>
-                      )
-                  }
-                </div>
-              </div>
-
-              <div className="anime-info">
-
-                <h1 className="anime__title">{animeDetails.title}</h1>
-
-                <div className="anime__genres">
-                  {
-                    animeDetails.genres.map(genre => (
-                      <Link
-                        key={genre.mal_id}
-                        to={`/genre/${genre.mal_id}/${genre.name}`}
-                      >
-                        {genre.name}
-                      </Link>
-                    ))
-                  }
-                </div>
-
-                {
-                  animeDetails.score === null
-                    ? (
-                      <p>
-                        <i className="fas fa-exclamation-circle" />
-                        &nbsp;
-                        Score not avaliable
-                      </p>
-                    )
-                    : (
-                      <div className="anime__score">
-                        <i className="fas fa-star-half-alt" />
-                        <span>{animeDetails.score}</span>
-                      </div>
-                    )
-                }
-
-                <p>
-                  Type:&nbsp;
-                  {animeDetails.type}
-                </p>
-
-                <p>
-                  Released:&nbsp;
-                  {animeDetails.aired.string}
-                </p>
-
-                {
-                  animeDetails.airing === true
-                    ? (
-                      <p>
-                        Airing:
-                        &nbsp;
-                        <i className="fas fa-check" />
-                      </p>
-                    )
-                    : (
-                      <p>
-                        Airing:
-                        &nbsp;
-                        <i className="fas fa-times" />
-                      </p>
-                    )
-                }
-
-                <p>
-                  Duration:&nbsp;
-                  {animeDetails.duration}
-                </p>
-
-                {
-                  animeDetails.synopsis === null
-                    ? (
-                      <p>
-                        <i className="fas fa-exclamation-circle" />
-                        &nbsp;
-                        Synopsis not avaliable
-                      </p>
-                    )
-                    : (
-                      <p>{animeDetails.synopsis}</p>
-                    )
-                }
-              </div>
+          {imageUrl ? (
+            <img src={imageUrl} alt={details.title || 'Anime'} />
+          ) : (
+            <div className="anime-image-placeholder">
+              Image not available
             </div>
-          </main>
-        )
-      }
-    </>
+          )}
+
+          <div className="anime__watch-links">
+
+            {details.url ? (
+              <a
+                href={details.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="watch"
+              >
+                <i className="fas fa-play-circle" />
+                <span>&nbsp; Watch Now</span>
+              </a>
+            ) : null}
+
+            {details.trailer_url ? (
+              <a
+                href={details.trailer_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="trailer"
+              >
+                <i className="fas fa-play-circle" />
+                <span>&nbsp; View Trailer</span>
+              </a>
+            ) : (
+              <p>
+                <i className="fas fa-exclamation-circle" />
+                &nbsp; Trailer not available
+              </p>
+            )}
+
+          </div>
+        </div>
+
+        <div className="anime-info">
+
+          <h1 className="anime__title">
+            {details.title || 'Unknown Anime'}
+          </h1>
+
+          <div className="anime__genres">
+            {genres.map(genre => (
+              <Link
+                key={genre.mal_id}
+                to={`/genre/${genre.mal_id}/${genre.name}`}
+              >
+                {genre.name}
+              </Link>
+            ))}
+          </div>
+
+          {details.score !== null &&
+          details.score !== undefined ? (
+            <div className="anime__score">
+              <i className="fas fa-star-half-alt" />
+              <span>{details.score}</span>
+            </div>
+          ) : (
+            <p>Score not available</p>
+          )}
+
+          <p>
+            Type: {details.type || 'Unknown'}
+          </p>
+
+          <p>
+            Released:
+            {' '}
+            {details.aired && details.aired.string
+              ? details.aired.string
+              : 'Unknown'}
+          </p>
+
+          <p>
+            Airing:
+            {' '}
+            {details.airing === true ? (
+              <i className="fas fa-check" />
+            ) : (
+              <i className="fas fa-times" />
+            )}
+          </p>
+
+          <p>
+            Duration: {details.duration || 'Unknown'}
+          </p>
+
+          <p>
+            {details.synopsis || 'Synopsis not available'}
+          </p>
+
+        </div>
+      </div>
+    </main>
   );
 };
 
@@ -175,32 +236,26 @@ AnimeDetails.propTypes = {
       animeId: PropTypes.string.isRequired,
     }).isRequired,
   }).isRequired,
+
   animeDetailsAdder: PropTypes.func.isRequired,
+
   animeDetails: PropTypes.shape({
     mal_id: PropTypes.number,
-    images: PropTypes.shape({
-      webp: PropTypes.shape({
-        image_url: PropTypes.string,
-        large_image_url: PropTypes.string,
-        small_image_url: PropTypes.string,
-      }),
-    }),
+    images: PropTypes.object,
     url: PropTypes.string,
     trailer_url: PropTypes.string,
     title: PropTypes.string,
-    genres: PropTypes.arrayOf(PropTypes.shape({})),
+    genres: PropTypes.array,
     score: PropTypes.number,
-    aired: PropTypes.shape({
-      string: PropTypes.string,
-    }),
+    aired: PropTypes.object,
     type: PropTypes.string,
     airing: PropTypes.bool,
     duration: PropTypes.string,
     synopsis: PropTypes.string,
-  }).isRequired,
+  }),
 };
 
 export default connect(
   mapStateToProps,
-  mapDispatchToProps,
+  mapDispatchToProps
 )(AnimeDetails);
